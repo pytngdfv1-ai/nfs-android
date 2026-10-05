@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 120
     env:
       GAME: ${{ inputs.game }}
-      SDL_REF: release-3.2.10
+      SDL_REF: release-3.4.2
     steps:
       - name: Checkout este repo
         uses: actions/checkout@v4
