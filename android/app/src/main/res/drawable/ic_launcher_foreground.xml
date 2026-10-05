@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Sombra de la N -->
+    <path
+        android:fillColor="#66000000"
+        android:pathData="M37,79 L37,35 L47,35 L67,61 L67,35 L77,35 L77,79 L67,79 L47,53 L47,79 Z" />
+
+    <!-- Letra N -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,76 L34,32 L44,32 L64,58 L64,32 L74,32 L74,76 L64,76 L44,50 L44,76 Z" />
+
+    <!-- Líneas de velocidad -->
+    <path
+        android:fillColor="#FF3D00"
+        android:pathData="M20,44 L30,44 L30,48 L20,48 Z" />
+    <path
+        android:fillColor="#FFC400"
+        android:pathData="M24,54 L30,54 L30,57 L24,57 Z" />
+    <path
+        android:fillColor="#FF3D00"
+        android:pathData="M22,63 L30,63 L30,66 L22,66 Z" />
+</vector>
