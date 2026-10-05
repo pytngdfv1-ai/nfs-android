@@ -30,10 +30,13 @@ jobs:
         run: |
           git clone --depth 1 --branch "$SDL_REF" https://github.com/libsdl-org/SDL.git deps/SDL
           git clone --depth 1 https://github.com/ptitSeb/gl4es.git deps/gl4es
+          mkdir -p android/app/src/main/cpp/shim
           curl -L -o android/app/src/main/cpp/shim/sse2neon.h \
             https://raw.githubusercontent.com/DLTcollab/sse2neon/master/sse2neon.h
           mkdir -p android/app/src/main/java
           cp -r deps/SDL/android-project/app/src/main/java/org android/app/src/main/java/
+          # Quitar los Gradle Wrapper de las dependencias (evita el error de validación)
+          find deps -name "gradle-wrapper.jar" -delete
 
       - uses: actions/setup-java@v4
         with:
@@ -43,6 +46,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+          validate-wrappers: false
 
       - name: Compilar APK
         run: |
