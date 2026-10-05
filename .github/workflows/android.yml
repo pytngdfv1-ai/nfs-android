@@ -1,0 +1,58 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      game:
+        description: "Juego a compilar"
+        type: choice
+        options: [nfs3hp, nfs2se]
+        default: nfs3hp
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GAME: ${{ inputs.game }}
+      SDL_REF: release-3.2.10
+    steps:
+      - name: Checkout este repo
+        uses: actions/checkout@v4
+
+      - name: Checkout código del juego (upstream)
+        uses: actions/checkout@v4
+        with:
+          repository: motor-dev/nfs-recompiled
+          path: deps/upstream
+
+      - name: Descargar SDL3, gl4es y sse2neon
+        run: |
+          git clone --depth 1 --branch "$SDL_REF" https://github.com/libsdl-org/SDL.git deps/SDL
+          git clone --depth 1 https://github.com/ptitSeb/gl4es.git deps/gl4es
+          curl -L -o android/app/src/main/cpp/shim/sse2neon.h \
+            https://raw.githubusercontent.com/DLTcollab/sse2neon/master/sse2neon.h
+          mkdir -p android/app/src/main/java
+          cp -r deps/SDL/android-project/app/src/main/java/org android/app/src/main/java/
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Compilar APK
+        run: |
+          gradle -p android assembleDebug \
+            -PGAME=$GAME \
+            -PUPSTREAM=$GITHUB_WORKSPACE/deps/upstream \
+            -PSDL_DIR=$GITHUB_WORKSPACE/deps/SDL \
+            -PGL4ES_DIR=$GITHUB_WORKSPACE/deps/gl4es
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nfs-android-${{ inputs.game }}
+          path: android/app/build/outputs/apk/debug/*.apk
