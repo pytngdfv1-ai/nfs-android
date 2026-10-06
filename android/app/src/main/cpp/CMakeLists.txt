@@ -31,7 +31,10 @@ file(GLOB GAME_SRC
     ${U}/src/${GAME}/disassembly/*.cpp)
 
 # libmain.so: SDLActivity la carga junto a libSDL3.so
-add_library(main SHARED ${LIB_SRC} ${GAME_SRC})
+add_library(main SHARED
+    ${LIB_SRC}
+    ${GAME_SRC}
+    ${CMAKE_CURRENT_SOURCE_DIR}/android_init.cpp)
 
 target_include_directories(main PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/shim
