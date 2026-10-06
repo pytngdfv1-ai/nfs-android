@@ -26,6 +26,9 @@ jobs:
           repository: motor-dev/nfs-recompiled
           path: deps/upstream
 
+      - name: Aplicar parche para Android (shaders y contexto GLES)
+        run: python3 patches/android_patch.py deps/upstream
+
       - name: Descargar SDL3, gl4es y sse2neon
         run: |
           git clone --depth 1 --branch "$SDL_REF" https://github.com/libsdl-org/SDL.git deps/SDL
@@ -35,7 +38,6 @@ jobs:
             https://raw.githubusercontent.com/DLTcollab/sse2neon/master/sse2neon.h
           mkdir -p android/app/src/main/java
           cp -r deps/SDL/android-project/app/src/main/java/org android/app/src/main/java/
-          # Quitar los Gradle Wrapper de las dependencias (evita el error de validación)
           find deps -name "gradle-wrapper.jar" -delete
 
       - uses: actions/setup-java@v4
