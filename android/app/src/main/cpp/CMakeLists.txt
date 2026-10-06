@@ -11,13 +11,9 @@ set(SDL_STATIC OFF CACHE BOOL "" FORCE)
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 add_subdirectory(${SDL_DIR} SDL3-build)
 
-# --- gl4es (OpenGL de escritorio sobre GLES), enlazado ESTATICO ---
-set(NOX11 ON CACHE BOOL "" FORCE)
-set(GLX_STUBS ON CACHE BOOL "" FORCE)
-set(STATICLIB ON CACHE BOOL "" FORCE)
-add_subdirectory(${GL4ES_DIR} gl4es-build)
-
 # --- Código del juego ---
+# Ya NO se enlaza gl4es: solo se usan sus cabeceras para compilar.
+# El juego habla directo con OpenGL ES (GLESv3) del teléfono.
 set(U ${UPSTREAM})
 file(GLOB LIB_SRC
     ${U}/src/lib/*.cpp
@@ -46,4 +42,4 @@ target_include_directories(main PRIVATE
 target_compile_definitions(main PRIVATE WITH_MMX)
 target_compile_options(main PRIVATE -w -O1 -g0 -fno-strict-aliasing)
 
-target_link_libraries(main PRIVATE SDL3::SDL3 GL dl log android)
+target_link_libraries(main PRIVATE SDL3::SDL3 GLESv3 dl log android)
