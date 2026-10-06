@@ -2,7 +2,6 @@ package com.nfs.recompiled;
 
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Process;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
@@ -25,7 +24,7 @@ public class NfsActivity extends SDLActivity {
             public void run() {
                 try {
                     File f = new File(Environment.getExternalStorageDirectory(), "nfs_log.txt");
-                    Process p = Runtime.getRuntime().exec(new String[] { "logcat", "-v", "time" });
+                    java.lang.Process p = Runtime.getRuntime().exec(new String[] { "logcat", "-v", "time" });
                     BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
                     FileWriter w = new FileWriter(f, false);
                     String line;
@@ -57,6 +56,6 @@ public class NfsActivity extends SDLActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        Process.killProcess(Process.myPid());
+        android.os.Process.killProcess(android.os.Process.myPid());
     }
 }
