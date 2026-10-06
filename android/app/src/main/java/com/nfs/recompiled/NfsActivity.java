@@ -2,6 +2,7 @@ package com.nfs.recompiled;
 
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Process;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
@@ -50,5 +51,12 @@ public class NfsActivity extends SDLActivity {
     @Override
     protected String[] getArguments() {
         return new String[] { gameDir() };
+    }
+
+    // Matar el proceso al cerrar: así cada apertura empieza limpia
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        Process.killProcess(Process.myPid());
     }
 }
