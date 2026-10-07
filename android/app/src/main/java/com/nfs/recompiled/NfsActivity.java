@@ -11,6 +11,9 @@ import org.libsdl.app.SDLActivity;
 
 public class NfsActivity extends SDLActivity {
 
+    // Implementada en android_init.cpp
+    public static native void nativeTypeChar(int c);
+
     // Carpeta de los archivos del juego: <almacenamiento interno>/NFS3
     private String gameDir() {
         File dir = new File(Environment.getExternalStorageDirectory(), "NFS3");
