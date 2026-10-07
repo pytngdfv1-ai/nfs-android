@@ -82,11 +82,25 @@ edit('src/lib/window.cpp', window)
 # ---------------------------------------------------------------- renderer.cpp
 BLIT_HELPER = r'''
 // ---- Android/GLES: dibujar la textura del juego con un shader (sin OpenGL antiguo) ----
-static GLuint s_blitProgram = 0;
-static GLint  s_blitTexLoc = -1;
-
-static void androidBlitInit()
+// El juego usa varios contextos GL (menu y carrera): cada uno necesita su propio programa.
+struct AndroidBlitProg
 {
+    SDL_GLContext ctx;
+    GLuint program;
+    GLint texLoc;
+};
+static AndroidBlitProg s_blitProgs[8];
+static int s_blitProgCount = 0;
+
+static AndroidBlitProg* androidBlitGet()
+{
+    SDL_GLContext cur = SDL_GL_GetCurrentContext();
+    for (int i = 0; i < s_blitProgCount; ++i)
+    {
+        if (s_blitProgs[i].ctx == cur)
+            return &s_blitProgs[i];
+    }
+
     PFNGLCREATESHADERPROC pCreateShader = (PFNGLCREATESHADERPROC)SDL_GL_GetProcAddress("glCreateShader");
     PFNGLSHADERSOURCEPROC pShaderSource = (PFNGLSHADERSOURCEPROC)SDL_GL_GetProcAddress("glShaderSource");
     PFNGLCOMPILESHADERPROC pCompileShader = (PFNGLCOMPILESHADERPROC)SDL_GL_GetProcAddress("glCompileShader");
@@ -119,27 +133,38 @@ static void androidBlitInit()
     const GLchar* fsrc = fs;
     pShaderSource(f, 1, &fsrc, nullptr);
     pCompileShader(f);
-    s_blitProgram = pCreateProgram();
-    pAttachShader(s_blitProgram, v);
-    pAttachShader(s_blitProgram, f);
-    pLinkProgram(s_blitProgram);
-    s_blitTexLoc = pGetUniformLocation(s_blitProgram, "u_tex");
+    GLuint prog = pCreateProgram();
+    pAttachShader(prog, v);
+    pAttachShader(prog, f);
+    pLinkProgram(prog);
+
+    int slot = s_blitProgCount < 8 ? s_blitProgCount++ : 7;
+    s_blitProgs[slot].ctx = cur;
+    s_blitProgs[slot].program = prog;
+    s_blitProgs[slot].texLoc = pGetUniformLocation(prog, "u_tex");
+    return &s_blitProgs[slot];
 }
 
 static void androidBlit()
 {
-    if (!s_blitProgram)
-        androidBlitInit();
+    AndroidBlitProg* bp = androidBlitGet();
     PFNGLUSEPROGRAMPROC pUseProgram = (PFNGLUSEPROGRAMPROC)SDL_GL_GetProcAddress("glUseProgram");
     PFNGLUNIFORM1IPROC pUniform1i = (PFNGLUNIFORM1IPROC)SDL_GL_GetProcAddress("glUniform1i");
+    PFNGLBINDVERTEXARRAYPROC pBindVertexArray = (PFNGLBINDVERTEXARRAYPROC)SDL_GL_GetProcAddress("glBindVertexArray");
+
+    GLint oldVao = 0;
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &oldVao);
+    pBindVertexArray(0);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
-    pUseProgram(s_blitProgram);
-    pUniform1i(s_blitTexLoc, 0);
+    glActiveTexture(GL_TEXTURE0);
+    pUseProgram(bp->program);
+    pUniform1i(bp->texLoc, 0);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     pUseProgram(0);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
+    pBindVertexArray((GLuint)oldVao);
 }
 
 '''
