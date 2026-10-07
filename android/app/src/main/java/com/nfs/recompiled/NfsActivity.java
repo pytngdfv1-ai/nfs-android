@@ -2,6 +2,7 @@ package com.nfs.recompiled;
 
 import android.os.Bundle;
 import android.os.Environment;
+import android.view.ViewGroup;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
@@ -44,6 +45,10 @@ public class NfsActivity extends SDLActivity {
         gameDir(); // crea la carpeta NFS3 si no existe
         startLogger();
         super.onCreate(savedInstanceState);
+        // Controles tactiles encima del juego
+        addContentView(new TouchControls(this),
+                new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                                           ViewGroup.LayoutParams.MATCH_PARENT));
     }
 
     // Se pasa como argv[1] al main() del juego
