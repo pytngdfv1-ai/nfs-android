@@ -5,11 +5,18 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.os.SystemClock;
+import android.text.InputType;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.inputmethod.BaseInputConnection;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.libsdl.app.SDLActivity;
 
 public class TouchControls extends View {
@@ -25,14 +32,15 @@ public class TouchControls extends View {
         final int key;
         final int kind;
         final boolean alwaysVisible;
+        final boolean round;
         final RectF r;
-        boolean down = false;
 
-        Btn(String label, int key, int kind, boolean alwaysVisible, RectF r) {
+        Btn(String label, int key, int kind, boolean alwaysVisible, boolean round, RectF r) {
             this.label = label;
             this.key = key;
             this.kind = kind;
             this.alwaysVisible = alwaysVisible;
+            this.round = round;
             this.r = r;
         }
     }
@@ -53,29 +61,40 @@ public class TouchControls extends View {
             new Cheat("JAG", "Jaguar XJR-15"),
             new Cheat("DCOP", "Diablo SV polic\u00EDa"),
             new Cheat("ECOP", "El Ni\u00F1o polic\u00EDa"),
-            new Cheat("CARS", "Todos los coches extra"),
+            new Cheat("CARS", "Todos los coches"),
             new Cheat("EMPIRE", "Pista Empire City"),
-            new Cheat("MONKEY", "Manual act\u00FAa como autom\u00E1tico"),
+            new Cheat("MONKEY", "Manual = autom\u00E1tico"),
             new Cheat("GOFAST", "Velocidad extrema"),
             new Cheat("RUSHHOUR", "M\u00E1s tr\u00E1fico"),
     };
 
     private final List<Btn> buttons = new ArrayList<Btn>();
+    private final Set<Integer> held = new HashSet<Integer>();
+
+    // Palanca de volante
+    private float stickCx, stickCy, stickR;
+    private float knobDx = 0, knobDy = 0;
+
+    // Panel de trucos
     private final RectF panel = new RectF();
     private final RectF closeBtn = new RectF();
+    private final RectF enterBtn = new RectF();
+    private final RectF echoBox = new RectF();
     private final RectF[] cells = new RectF[10];
+    private final StringBuilder typed = new StringBuilder();
 
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint smallText = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint titlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint codePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint descPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint echoPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private final long startTime = SystemClock.uptimeMillis();
     private boolean controlsOn = false;
     private boolean panelOpen = false;
-    private boolean typing = false;
     private float density = 1f;
 
     public TouchControls(Context context) {
@@ -90,9 +109,14 @@ public class TouchControls extends View {
         text.setTextSize(15f * density);
         text.setFakeBoldText(true);
 
+        smallText.setColor(0xFFFFFFFF);
+        smallText.setTextAlign(Paint.Align.CENTER);
+        smallText.setTextSize(13f * density);
+        smallText.setFakeBoldText(true);
+
         titlePaint.setColor(0xFFFFD54F);
-        titlePaint.setTextAlign(Paint.Align.CENTER);
-        titlePaint.setTextSize(17f * density);
+        titlePaint.setTextAlign(Paint.Align.LEFT);
+        titlePaint.setTextSize(13f * density);
         titlePaint.setFakeBoldText(true);
 
         codePaint.setColor(0xFFFFFFFF);
@@ -102,7 +126,12 @@ public class TouchControls extends View {
 
         descPaint.setColor(0xFFB0BEC5);
         descPaint.setTextAlign(Paint.Align.LEFT);
-        descPaint.setTextSize(11f * density);
+        descPaint.setTextSize(10f * density);
+
+        echoPaint.setColor(0xFF80FF80);
+        echoPaint.setTextAlign(Paint.Align.LEFT);
+        echoPaint.setTextSize(16f * density);
+        echoPaint.setFakeBoldText(true);
 
         for (int i = 0; i < cells.length; i++) {
             cells[i] = new RectF();
@@ -120,86 +149,121 @@ public class TouchControls extends View {
         }, INTRO_MS + 200);
     }
 
+    // ------------------------------------------------------------------ layout
+
+    private void addKey(String label, int key, boolean always, boolean round, float l, float t, float r, float b) {
+        buttons.add(new Btn(label, key, KIND_KEY, always, round, new RectF(l, t, r, b)));
+    }
+
+    private void addRound(String label, int key, float cx, float cy, float radius) {
+        addKey(label, key, false, true, cx - radius, cy - radius, cx + radius, cy + radius);
+    }
+
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
         float d = density;
-        float m = 20 * d;
-        float big = 84 * d;
-        float mid = 64 * d;
-        float small = 44 * d;
-        float gap = 10 * d;
+        float m = 14 * d;
         buttons.clear();
 
+        // El juego se dibuja en 4:3 centrado: calcular las franjas negras laterales
+        float gameW = h * 4f / 3f;
+        float barW = Math.max(0f, (w - gameW) / 2f);
+        // Zona de controles: la franja negra (o 150dp en el borde si es muy angosta)
+        float zw = Math.max(barW, 150 * d);
+        float s = Math.max(0.7f, Math.min(1.25f, zw / (190 * d)));
+        float leftC = zw / 2f;
+        float rightC = w - zw / 2f;
+
         // Siempre disponibles (arriba al centro): CTRL, TRUCOS, SALTAR
-        buttons.add(new Btn("CTRL", 0, KIND_TOGGLE, true,
+        buttons.add(new Btn("CTRL", 0, KIND_TOGGLE, true, false,
                 new RectF(w / 2f - 104 * d, 6 * d, w / 2f - 44 * d, 38 * d)));
-        buttons.add(new Btn("TRUCOS", 0, KIND_CHEATS, true,
+        buttons.add(new Btn("TRUCOS", 0, KIND_CHEATS, true, false,
                 new RectF(w / 2f - 38 * d, 6 * d, w / 2f + 42 * d, 38 * d)));
-        buttons.add(new Btn("SALTAR", 0, KIND_SKIP, true,
+        buttons.add(new Btn("SALTAR", 0, KIND_SKIP, true, false,
                 new RectF(w / 2f + 48 * d, 6 * d, w / 2f + 128 * d, 38 * d)));
 
         // ENTER siempre visible (abajo al centro)
-        buttons.add(new Btn("ENTER", KeyEvent.KEYCODE_ENTER, KIND_KEY, true,
-                new RectF(w / 2f - 44 * d, h - 10 * d - 44 * d, w / 2f + 44 * d, h - 10 * d)));
+        addKey("ENTER", KeyEvent.KEYCODE_ENTER, true, false,
+                w / 2f - 44 * d, h - 10 * d - 44 * d, w / 2f + 44 * d, h - 10 * d);
 
-        // Volante (abajo izquierda)
-        buttons.add(new Btn("\u25C0", KeyEvent.KEYCODE_DPAD_LEFT, KIND_KEY, false,
-                new RectF(m, h - m - big, m + big, h - m)));
-        buttons.add(new Btn("\u25B6", KeyEvent.KEYCODE_DPAD_RIGHT, KIND_KEY, false,
-                new RectF(m + big + gap, h - m - big, m + 2 * big + gap, h - m)));
+        // ---------- Franja izquierda ----------
+        // Pausa (arriba)
+        addKey("ESC", KeyEvent.KEYCODE_ESCAPE, false, false,
+                leftC - 28 * d, 6 * d, leftC + 28 * d, 42 * d);
 
-        // Acelerador y freno (abajo derecha)
-        buttons.add(new Btn("FRENO", KeyEvent.KEYCODE_DPAD_DOWN, KIND_KEY, false,
-                new RectF(w - m - big, h - m - mid, w - m, h - m)));
-        buttons.add(new Btn("ACEL", KeyEvent.KEYCODE_DPAD_UP, KIND_KEY, false,
-                new RectF(w - m - big, h - m - mid - gap - big, w - m, h - m - mid - gap)));
+        // Palanca de volante (abajo)
+        stickR = Math.min(68 * d * s, zw * 0.42f);
+        stickCx = leftC;
+        stickCy = h - m - stickR;
 
-        // Freno de mano
-        float hx = w - m - big - gap - mid;
-        buttons.add(new Btn("MANO", KeyEvent.KEYCODE_SPACE, KIND_KEY, false,
-                new RectF(hx, h - m - mid, hx + mid, h - m)));
+        // Cruceta (arriba de la palanca)
+        float sb = 42 * d * s;
+        float g = 3 * d;
+        float cx = leftC;
+        float cy = h * 0.36f;
+        addKey("\u25B2", KeyEvent.KEYCODE_DPAD_UP, false, false,
+                cx - sb / 2, cy - sb / 2 - g - sb, cx + sb / 2, cy - sb / 2 - g);
+        addKey("\u25BC", KeyEvent.KEYCODE_DPAD_DOWN, false, false,
+                cx - sb / 2, cy + sb / 2 + g, cx + sb / 2, cy + sb / 2 + g + sb);
+        addKey("\u25C0", KeyEvent.KEYCODE_DPAD_LEFT, false, false,
+                cx - sb / 2 - g - sb, cy - sb / 2, cx - sb / 2 - g, cy + sb / 2);
+        addKey("\u25B6", KeyEvent.KEYCODE_DPAD_RIGHT, false, false,
+                cx + sb / 2 + g, cy - sb / 2, cx + sb / 2 + g + sb, cy + sb / 2);
 
-        // Cambios y camara
-        float rowY = h - m - mid - gap - small;
-        buttons.add(new Btn("Z-", KeyEvent.KEYCODE_Z, KIND_KEY, false,
-                new RectF(hx, rowY, hx + small, rowY + small)));
-        buttons.add(new Btn("CAM", KeyEvent.KEYCODE_C, KIND_KEY, false,
-                new RectF(hx + small + 8 * d, rowY, hx + 2 * small + 8 * d, rowY + small)));
-        buttons.add(new Btn("A+", KeyEvent.KEYCODE_A, KIND_KEY, false,
-                new RectF(hx, rowY - small - 8 * d, hx + small, rowY - 8 * d)));
+        // ---------- Franja derecha ----------
+        // Pedales (abajo)
+        float gasW = 84 * d * s;
+        float gasH = 132 * d * s;
+        float brkW = 72 * d * s;
+        float brkH = 100 * d * s;
+        float pgap = 10 * d * s;
+        float totalW = brkW + pgap + gasW;
+        float left0 = rightC - totalW / 2f;
+        addKey("FRENO", KeyEvent.KEYCODE_DPAD_DOWN, false, false,
+                left0, h - m - brkH, left0 + brkW, h - m);
+        addKey("GAS", KeyEvent.KEYCODE_DPAD_UP, false, false,
+                left0 + brkW + pgap, h - m - gasH, left0 + totalW, h - m);
 
-        // Pausa (arriba izquierda)
-        buttons.add(new Btn("ESC", KeyEvent.KEYCODE_ESCAPE, KIND_KEY, false,
-                new RectF(10 * d, 6 * d, 10 * d + 56 * d, 6 * d + 36 * d)));
+        // Botones redondos en rombo (arriba de los pedales)
+        float pedalsTop = h - m - gasH;
+        float rr = 27 * d * s;
+        float ox = 54 * d * s;
+        float oy = 50 * d * s;
+        float ry = pedalsTop - 8 * d - oy - rr;
+        addRound("A+", KeyEvent.KEYCODE_A, rightC, ry - oy, rr);          // arriba
+        addRound("CAM", KeyEvent.KEYCODE_C, rightC - ox, ry, rr);         // izquierda
+        addRound("Z-", KeyEvent.KEYCODE_Z, rightC + ox, ry, rr);          // derecha
+        addRound("MANO", KeyEvent.KEYCODE_SPACE, rightC, ry + oy, rr);    // abajo
 
         layoutPanel(w, h);
     }
 
-    // Panel de trucos: 2 columnas x 5 filas
+    // Panel de trucos: ocupa todo el ancho, arriba; el teclado queda abajo
     private void layoutPanel(int w, int h) {
         float d = density;
-        float pw = Math.min(w - 40 * d, 540 * d);
-        float ph = Math.min(h - 16 * d, 300 * d);
-        float left = (w - pw) / 2f;
-        float top = (h - ph) / 2f;
-        panel.set(left, top, left + pw, top + ph);
+        float ph = Math.min(h * 0.5f, 200 * d);
+        panel.set(0, 0, w, ph);
 
-        float titleH = 40 * d;
-        closeBtn.set(panel.right - 40 * d, panel.top + 4 * d, panel.right - 6 * d, panel.top + 36 * d);
+        float bar = 40 * d;
+        closeBtn.set(w - 10 * d - 44 * d, 4 * d, w - 10 * d, 4 * d + 32 * d);
+        enterBtn.set(closeBtn.left - 8 * d - 90 * d, 4 * d, closeBtn.left - 8 * d, 4 * d + 32 * d);
+        echoBox.set(230 * d, 4 * d, enterBtn.left - 10 * d, 4 * d + 32 * d);
 
-        float pad = 10 * d;
-        float cw = (pw - pad * 3) / 2f;
-        float rows = 5;
-        float ch = (ph - titleH - pad * (rows + 1) + pad) / rows;
+        float pad = 8 * d;
+        int cols = 5;
+        float cw = (w - pad * (cols + 1)) / cols;
+        float ch = (ph - bar - pad * 3) / 2f;
         for (int i = 0; i < cells.length; i++) {
-            int col = i % 2;
-            int row = i / 2;
-            float x = panel.left + pad + col * (cw + pad);
-            float y = panel.top + titleH + pad + row * (ch + pad);
+            int col = i % cols;
+            int row = i / cols;
+            float x = pad + col * (cw + pad);
+            float y = bar + pad + row * (ch + pad);
             cells[i].set(x, y, x + cw, y + ch);
         }
     }
+
+    // ------------------------------------------------------------------ teclas
 
     private boolean introActive() {
         return SystemClock.uptimeMillis() - startTime < INTRO_MS;
@@ -211,11 +275,29 @@ public class TouchControls extends View {
         return controlsOn;
     }
 
+    private boolean contains(Btn b, float x, float y) {
+        if (b.round) {
+            float dx = x - b.r.centerX();
+            float dy = y - b.r.centerY();
+            float rad = b.r.width() / 2f;
+            return dx * dx + dy * dy <= rad * rad;
+        }
+        return b.r.contains(x, y);
+    }
+
     private Btn hit(float x, float y) {
         for (Btn b : buttons) {
-            if (isVisible(b) && b.r.contains(x, y)) return b;
+            if (isVisible(b) && contains(b, x, y)) return b;
         }
         return null;
+    }
+
+    private boolean inStick(float x, float y) {
+        if (!controlsOn) return false;
+        float dx = x - stickCx;
+        float dy = y - stickCy;
+        float rad = stickR * 1.5f;
+        return dx * dx + dy * dy <= rad * rad;
     }
 
     private void tapKey(final int keyCode) {
@@ -229,67 +311,190 @@ public class TouchControls extends View {
     }
 
     private void releaseAll() {
-        for (Btn b : buttons) {
-            if (b.down) {
-                b.down = false;
-                SDLActivity.onNativeKeyUp(b.key);
+        for (Integer k : new ArrayList<Integer>(held)) {
+            SDLActivity.onNativeKeyUp(k);
+        }
+        held.clear();
+        knobDx = 0;
+        knobDy = 0;
+    }
+
+    private void syncKeys(Set<Integer> wanted) {
+        for (Integer k : new ArrayList<Integer>(held)) {
+            if (!wanted.contains(k)) {
+                held.remove(k);
+                SDLActivity.onNativeKeyUp(k);
+            }
+        }
+        for (Integer k : wanted) {
+            if (!held.contains(k)) {
+                held.add(k);
+                SDLActivity.onNativeKeyDown(k);
             }
         }
     }
 
-    // Escribe una palabra letra por letra (como en el teclado de la PC)
-    private void typeWord(String word) {
-        if (typing) return;
-        typing = true;
-        final String w = word.toLowerCase(java.util.Locale.ROOT);
-        final long step = 160;
-        for (int i = 0; i < w.length(); i++) {
-            final char c = w.charAt(i);
-            postDelayed(new Runnable() {
+    // ------------------------------------------------------------------ teclado de trucos
+
+    private void sendChar(char c) {
+        if (c == '\n') {
+            sendEnter();
+            return;
+        }
+        char lc = Character.toLowerCase(c);
+        typed.append(lc);
+        if (lc >= 'a' && lc <= 'z') {
+            tapKey(KeyEvent.KEYCODE_A + (lc - 'a'));
+        } else if (lc >= '0' && lc <= '9') {
+            tapKey(KeyEvent.KEYCODE_0 + (lc - '0'));
+        } else if (lc == ' ') {
+            tapKey(KeyEvent.KEYCODE_SPACE);
+        }
+        NfsActivity.nativeTypeChar(lc);
+        invalidate();
+    }
+
+    private void sendBackspace() {
+        if (typed.length() > 0) typed.setLength(typed.length() - 1);
+        tapKey(KeyEvent.KEYCODE_DEL);
+        invalidate();
+    }
+
+    private void sendEnter() {
+        typed.setLength(0);
+        tapKey(KeyEvent.KEYCODE_ENTER);
+        invalidate();
+    }
+
+    private void setPanel(boolean open) {
+        if (open == panelOpen) return;
+        panelOpen = open;
+        InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (open) {
+            releaseAll();
+            typed.setLength(0);
+            setFocusable(true);
+            setFocusableInTouchMode(true);
+            requestFocus();
+            if (imm != null) {
+                imm.restartInput(this);
+            }
+            post(new Runnable() {
                 @Override
                 public void run() {
-                    pressChar(c);
+                    InputMethodManager m2 = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (m2 != null) {
+                        m2.showSoftInput(TouchControls.this, 0);
+                    }
                 }
-            }, 250 + step * i);
-        }
-        postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                typing = false;
-            }
-        }, 250 + step * w.length() + 100);
-    }
-
-    private void pressChar(char c) {
-        final int code = KeyEvent.KEYCODE_A + (c - 'a');
-        SDLActivity.onNativeKeyDown(code);
-        NfsActivity.nativeTypeChar(c);
-        postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                SDLActivity.onNativeKeyUp(code);
-            }
-        }, 60);
-    }
-
-    private void handlePanelTouch(float x, float y) {
-        if (closeBtn.contains(x, y)) {
-            panelOpen = false;
+            });
         } else {
-            boolean picked = false;
-            for (int i = 0; i < cells.length; i++) {
-                if (cells[i].contains(x, y)) {
-                    panelOpen = false;
-                    typeWord(cheats[i].code);
-                    picked = true;
-                    break;
-                }
+            if (imm != null) {
+                imm.hideSoftInputFromWindow(getWindowToken(), 0);
             }
-            if (!picked && !panel.contains(x, y)) {
-                panelOpen = false;
+            setFocusable(false);
+            setFocusableInTouchMode(false);
+            clearFocus();
+            if (getContext() instanceof NfsActivity) {
+                ((NfsActivity) getContext()).restoreSdlFocus();
             }
         }
         invalidate();
+    }
+
+    @Override
+    public boolean onCheckIsTextEditor() {
+        return panelOpen;
+    }
+
+    @Override
+    public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+        if (!panelOpen) return null;
+        outAttrs.inputType = InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD;
+        outAttrs.imeOptions = EditorInfo.IME_ACTION_DONE
+                | EditorInfo.IME_FLAG_NO_EXTRACT_UI
+                | EditorInfo.IME_FLAG_NO_FULLSCREEN;
+        return new CheatInputConnection(this);
+    }
+
+    private class CheatInputConnection extends BaseInputConnection {
+        private String composing = "";
+
+        CheatInputConnection(View v) {
+            super(v, false);
+        }
+
+        @Override
+        public boolean commitText(CharSequence t, int newCursorPosition) {
+            String s = t.toString();
+            if (composing.length() > 0 && s.startsWith(composing)) {
+                s = s.substring(composing.length());
+            }
+            composing = "";
+            for (int i = 0; i < s.length(); i++) sendChar(s.charAt(i));
+            return true;
+        }
+
+        @Override
+        public boolean setComposingText(CharSequence t, int newCursorPosition) {
+            String s = t.toString();
+            if (s.startsWith(composing)) {
+                for (int i = composing.length(); i < s.length(); i++) sendChar(s.charAt(i));
+            } else if (composing.startsWith(s)) {
+                for (int i = s.length(); i < composing.length(); i++) sendBackspace();
+            } else {
+                for (int i = 0; i < composing.length(); i++) sendBackspace();
+                for (int i = 0; i < s.length(); i++) sendChar(s.charAt(i));
+            }
+            composing = s;
+            return true;
+        }
+
+        @Override
+        public boolean finishComposingText() {
+            composing = "";
+            return true;
+        }
+
+        @Override
+        public boolean deleteSurroundingText(int before, int after) {
+            for (int i = 0; i < before; i++) sendBackspace();
+            return true;
+        }
+
+        @Override
+        public boolean sendKeyEvent(KeyEvent ev) {
+            if (ev.getAction() == KeyEvent.ACTION_DOWN) {
+                int k = ev.getKeyCode();
+                if (k == KeyEvent.KEYCODE_ENTER) {
+                    sendEnter();
+                } else if (k == KeyEvent.KEYCODE_DEL) {
+                    sendBackspace();
+                } else {
+                    int u = ev.getUnicodeChar();
+                    if (u > 0) sendChar((char) u);
+                }
+            }
+            return true;
+        }
+
+        @Override
+        public boolean performEditorAction(int actionCode) {
+            sendEnter();
+            return true;
+        }
+    }
+
+    // ------------------------------------------------------------------ toques
+
+    private void handlePanelTouch(float x, float y) {
+        if (closeBtn.contains(x, y)) {
+            setPanel(false);
+        } else if (enterBtn.contains(x, y)) {
+            sendEnter();
+        }
     }
 
     @Override
@@ -306,91 +511,138 @@ public class TouchControls extends View {
         }
 
         if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
-            Btn b = hit(e.getX(idx), e.getY(idx));
-            if (b == null) {
+            float x = e.getX(idx);
+            float y = e.getY(idx);
+            Btn b = hit(x, y);
+            if (b == null && !inStick(x, y)) {
                 return false; // el toque pasa al juego (menus con el dedo)
             }
-            if (b.kind == KIND_TOGGLE) {
-                controlsOn = !controlsOn;
-                if (!controlsOn) releaseAll();
-                invalidate();
-                return true;
-            }
-            if (b.kind == KIND_SKIP) {
-                tapKey(KeyEvent.KEYCODE_ESCAPE);
-                return true;
-            }
-            if (b.kind == KIND_CHEATS) {
-                releaseAll();
-                panelOpen = true;
-                invalidate();
-                return true;
+            if (b != null) {
+                if (b.kind == KIND_TOGGLE) {
+                    controlsOn = !controlsOn;
+                    if (!controlsOn) releaseAll();
+                    invalidate();
+                    return true;
+                }
+                if (b.kind == KIND_SKIP) {
+                    tapKey(KeyEvent.KEYCODE_ESCAPE);
+                    return true;
+                }
+                if (b.kind == KIND_CHEATS) {
+                    setPanel(true);
+                    return true;
+                }
             }
         }
 
-        // Botones de tecla que estan siendo presionados ahora
-        List<Btn> now = new ArrayList<Btn>();
+        // Teclas que deben estar presionadas ahora
+        Set<Integer> wanted = new HashSet<Integer>();
+        boolean stickTouched = false;
         if (action != MotionEvent.ACTION_CANCEL) {
             for (int i = 0; i < e.getPointerCount(); i++) {
                 if ((action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) && i == idx) {
                     continue;
                 }
-                Btn b = hit(e.getX(i), e.getY(i));
-                if (b != null && b.kind == KIND_KEY) now.add(b);
+                float x = e.getX(i);
+                float y = e.getY(i);
+                if (inStick(x, y)) {
+                    stickTouched = true;
+                    float dx = x - stickCx;
+                    float dy = y - stickCy;
+                    float len = (float) Math.sqrt(dx * dx + dy * dy);
+                    float max = stickR * 0.6f;
+                    if (len > max && len > 0) {
+                        knobDx = dx / len * max;
+                        knobDy = dy / len * max;
+                    } else {
+                        knobDx = dx;
+                        knobDy = dy;
+                    }
+                    if (dx < -0.22f * stickR) {
+                        wanted.add(KeyEvent.KEYCODE_DPAD_LEFT);
+                    } else if (dx > 0.22f * stickR) {
+                        wanted.add(KeyEvent.KEYCODE_DPAD_RIGHT);
+                    }
+                } else {
+                    Btn b = hit(x, y);
+                    if (b != null && b.kind == KIND_KEY) wanted.add(b.key);
+                }
             }
         }
-        for (Btn b : buttons) {
-            if (b.kind != KIND_KEY) continue;
-            boolean should = now.contains(b);
-            if (should && !b.down) {
-                b.down = true;
-                SDLActivity.onNativeKeyDown(b.key);
-            } else if (!should && b.down) {
-                b.down = false;
-                SDLActivity.onNativeKeyUp(b.key);
-            }
+        if (!stickTouched) {
+            knobDx = 0;
+            knobDy = 0;
         }
+        syncKeys(wanted);
         invalidate();
         return true;
     }
 
+    // ------------------------------------------------------------------ dibujo
+
     @Override
     protected void onDraw(Canvas canvas) {
         float radius = 10 * density;
+
         for (Btn b : buttons) {
             if (!isVisible(b)) continue;
-            int alpha = b.down ? 0x99 : 0x40;
+            boolean pressed = b.kind == KIND_KEY && held.contains(b.key);
+            int alpha = pressed ? 0x99 : 0x40;
             if (b.kind == KIND_TOGGLE) alpha = controlsOn ? 0x80 : 0x50;
             if (b.kind == KIND_SKIP || b.kind == KIND_CHEATS) alpha = 0x80;
             fill.setColor((alpha << 24) | 0x00FFFFFF);
-            canvas.drawRoundRect(b.r, radius, radius, fill);
-            canvas.drawRoundRect(b.r, radius, radius, stroke);
-            float ty = b.r.centerY() - (text.descent() + text.ascent()) / 2f;
-            canvas.drawText(b.label, b.r.centerX(), ty, text);
+            Paint tp = b.round ? smallText : text;
+            if (b.round) {
+                float rad = b.r.width() / 2f;
+                canvas.drawCircle(b.r.centerX(), b.r.centerY(), rad, fill);
+                canvas.drawCircle(b.r.centerX(), b.r.centerY(), rad, stroke);
+            } else {
+                canvas.drawRoundRect(b.r, radius, radius, fill);
+                canvas.drawRoundRect(b.r, radius, radius, stroke);
+            }
+            float ty = b.r.centerY() - (tp.descent() + tp.ascent()) / 2f;
+            canvas.drawText(b.label, b.r.centerX(), ty, tp);
         }
 
+        // Palanca de volante
+        if (controlsOn) {
+            fill.setColor(0x26FFFFFF);
+            canvas.drawCircle(stickCx, stickCy, stickR, fill);
+            canvas.drawCircle(stickCx, stickCy, stickR, stroke);
+            fill.setColor(0x88FFFFFF);
+            canvas.drawCircle(stickCx + knobDx, stickCy + knobDy, stickR * 0.38f, fill);
+        }
+
+        // Panel de trucos (arriba) + eco de lo que escribes
         if (panelOpen) {
-            fill.setColor(0xF0101830);
-            canvas.drawRoundRect(panel, radius, radius, fill);
-            canvas.drawRoundRect(panel, radius, radius, stroke);
+            fill.setColor(0xF2101830);
+            canvas.drawRect(panel, fill);
+            canvas.drawLine(0, panel.bottom, panel.right, panel.bottom, stroke);
 
-            float ty = panel.top + 26 * density;
-            canvas.drawText("TRUCOS  (toca uno)", panel.centerX(), ty, titlePaint);
+            canvas.drawText("Teclea el truco y pulsa ENTER", 12 * density, 4 * density + 21 * density, titlePaint);
 
-            fill.setColor(0x55FF5252);
+            fill.setColor(0x33FFFFFF);
+            canvas.drawRoundRect(echoBox, radius, radius, fill);
+            String echo = typed.length() > 0 ? typed.toString() : "...";
+            float ey = echoBox.centerY() - (echoPaint.descent() + echoPaint.ascent()) / 2f;
+            canvas.drawText(echo, echoBox.left + 10 * density, ey, echoPaint);
+
+            fill.setColor(0x66448AFF);
+            canvas.drawRoundRect(enterBtn, radius, radius, fill);
+            float by = enterBtn.centerY() - (text.descent() + text.ascent()) / 2f;
+            canvas.drawText("ENTER", enterBtn.centerX(), by, text);
+
+            fill.setColor(0x66FF5252);
             canvas.drawRoundRect(closeBtn, radius, radius, fill);
-            float cy = closeBtn.centerY() - (text.descent() + text.ascent()) / 2f;
-            canvas.drawText("X", closeBtn.centerX(), cy, text);
+            canvas.drawText("X", closeBtn.centerX(), by, text);
 
             for (int i = 0; i < cells.length; i++) {
                 RectF c = cells[i];
                 fill.setColor(0x33FFFFFF);
                 canvas.drawRoundRect(c, radius, radius, fill);
-                float tx = c.left + 12 * density;
-                float codeY = c.top + c.height() * 0.45f;
-                float descY = c.top + c.height() * 0.80f;
-                canvas.drawText(cheats[i].code, tx, codeY, codePaint);
-                canvas.drawText(cheats[i].desc, tx, descY, descPaint);
+                float tx = c.left + 10 * density;
+                canvas.drawText(cheats[i].code, tx, c.top + c.height() * 0.46f, codePaint);
+                canvas.drawText(cheats[i].desc, tx, c.top + c.height() * 0.82f, descPaint);
             }
         }
     }
