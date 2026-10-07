@@ -54,13 +54,20 @@ public class NfsActivity extends SDLActivity {
                                            ViewGroup.LayoutParams.MATCH_PARENT));
     }
 
+    // Devuelve el foco a la superficie del juego (al cerrar el teclado de trucos)
+    public void restoreSdlFocus() {
+        if (mSurface != null) {
+            mSurface.requestFocus();
+        }
+    }
+
     // Se pasa como argv[1] al main() del juego
     @Override
     protected String[] getArguments() {
         return new String[] { gameDir() };
     }
 
-    // Matar el proceso al cerrar: así cada apertura empieza limpia
+    // Matar el proceso al cerrar: así cada apertura empieza limpio
     @Override
     protected void onDestroy() {
         super.onDestroy();
