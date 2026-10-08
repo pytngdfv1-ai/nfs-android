@@ -82,6 +82,8 @@ edit('src/lib/window.cpp', window)
 # ---------------------------------------------------------------- renderer.cpp
 BLIT_HELPER = r'''
 // ---- Android/GLES: dibujar la textura del juego con un shader (sin OpenGL antiguo) ----
+extern "C" void android_set_viewport(int vpX, int vpY, int vpW, int vpH,
+                                     int winW, int winH, int gameW, int gameH);
 // El juego usa varios contextos GL (menu y carrera): cada uno necesita su propio programa.
 struct AndroidBlitProg
 {
@@ -191,6 +193,14 @@ def renderer(s):
            'GL_UNSIGNED_BYTE, screenData);\n')
     s = must_replace(s, old, new)
 
+    # Informar al raton tactil de la posicion del juego en pantalla
+    old = ('    glViewport(0, 0, w, h);\n'
+           '    glClearColor(0.f, 0.f, 0.f, 1.f);')
+    new = ('    android_set_viewport(vpX, vpY, vpW, vpH, w, h, int(m_width), int(m_height));\n'
+           '    glViewport(0, 0, w, h);\n'
+           '    glClearColor(0.f, 0.f, 0.f, 1.f);')
+    s = must_replace(s, old, new, 1)
+
     # Insertar el helper antes de Renderer::present()
     marker = 'void Renderer::present()'
     if marker not in s:
@@ -200,3 +210,62 @@ def renderer(s):
 
 
 edit('src/lib/renderer.cpp', renderer)
+
+
+# ---------------------------------------------------------------- idirectinputdevice.cpp
+def dinput(s):
+    s = must_replace(s, '#include <lib/gamepad.h>\n',
+                     '#include <lib/gamepad.h>\n'
+                     'extern "C" int android_mouse_fetch(unsigned* ofs, int* data, int maxCount, int peek);\n'
+                     'extern "C" void android_mouse_state(int* dx, int* dy, int* button);\n', 1)
+
+    # Modo inmediato (GetDeviceState)
+    old = ('    app->lockContext(cpu);\n'
+           '    return 0;\n'
+           '}\n'
+           '\n'
+           'HRESULT IDirectInputDevice::GetDeviceData(')
+    new = ('    else if (dynamic_cast<Mouse*>(m_resource) && cbData >= 16)\n'
+           '    {\n'
+           '        int mdx = 0, mdy = 0, mb = 0;\n'
+           '        android_mouse_state(&mdx, &mdy, &mb);\n'
+           '        int* mstate = reinterpret_cast<int*>(lpvData);\n'
+           '        mstate[0] = mdx;\n'
+           '        mstate[1] = mdy;\n'
+           '        reinterpret_cast<unsigned char*>(lpvData)[12] = mb ? 0x80 : 0x00;\n'
+           '    }\n'
+           '    app->lockContext(cpu);\n'
+           '    return 0;\n'
+           '}\n'
+           '\n'
+           'HRESULT IDirectInputDevice::GetDeviceData(')
+    s = must_replace(s, old, new, 1)
+
+    # Modo con buffer (GetDeviceData)
+    old = ('    NFS2_ASSERT(dynamic_cast<Mouse*>(m_resource));\n'
+           '    *pdwInOut = 0;\n'
+           '    return 0;\n')
+    new = ('    NFS2_ASSERT(dynamic_cast<Mouse*>(m_resource));\n'
+           '    {\n'
+           '        static unsigned s_sequence = 0;\n'
+           '        unsigned mofs[64];\n'
+           '        int mdata[64];\n'
+           '        unsigned cap = *pdwInOut;\n'
+           '        if (cap > 64) cap = 64;\n'
+           '        int n = android_mouse_fetch(mofs, mdata, int(cap), (dwFlags & 1) ? 1 : 0);\n'
+           '        for (int i = 0; i < n; ++i)\n'
+           '        {\n'
+           '            DIDEVICEOBJECTDATA* d = reinterpret_cast<DIDEVICEOBJECTDATA*>(\n'
+           '                reinterpret_cast<char*>(rgdod) + i * cbObjectData);\n'
+           '            d->dwOfs = mofs[i];\n'
+           '            d->dwData = DWORD(mdata[i]);\n'
+           '            d->dwTimeStamp = 0;\n'
+           '            d->dwSequence = ++s_sequence;\n'
+           '        }\n'
+           '        *pdwInOut = DWORD(n);\n'
+           '    }\n'
+           '    return 0;\n')
+    return must_replace(s, old, new, 1)
+
+
+edit('src/lib/winapi/dinput/idirectinputdevice.cpp', dinput)
