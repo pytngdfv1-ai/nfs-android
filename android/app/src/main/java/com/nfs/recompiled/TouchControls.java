@@ -27,6 +27,9 @@ public class TouchControls extends View {
     private static final int KIND_SKIP = 2;
     private static final int KIND_CHEATS = 3;
 
+    // Zona muerta de la palanca de volante (fraccion del radio). Mas bajo = gira antes.
+    private static final float STICK_DEADZONE = 0.10f;
+
     private static class Btn {
         final String label;
         final int key;
@@ -197,20 +200,6 @@ public class TouchControls extends View {
         stickCx = leftC;
         stickCy = h - m - stickR;
 
-        // Cruceta (arriba de la palanca)
-        float sb = 42 * d * s;
-        float g = 3 * d;
-        float cx = leftC;
-        float cy = h * 0.36f;
-        addKey("\u25B2", KeyEvent.KEYCODE_DPAD_UP, false, false,
-                cx - sb / 2, cy - sb / 2 - g - sb, cx + sb / 2, cy - sb / 2 - g);
-        addKey("\u25BC", KeyEvent.KEYCODE_DPAD_DOWN, false, false,
-                cx - sb / 2, cy + sb / 2 + g, cx + sb / 2, cy + sb / 2 + g + sb);
-        addKey("\u25C0", KeyEvent.KEYCODE_DPAD_LEFT, false, false,
-                cx - sb / 2 - g - sb, cy - sb / 2, cx - sb / 2 - g, cy + sb / 2);
-        addKey("\u25B6", KeyEvent.KEYCODE_DPAD_RIGHT, false, false,
-                cx + sb / 2 + g, cy - sb / 2, cx + sb / 2 + g + sb, cy + sb / 2);
-
         // ---------- Franja derecha ----------
         // Pedales (abajo)
         float gasW = 84 * d * s;
@@ -248,7 +237,7 @@ public class TouchControls extends View {
         float bar = 40 * d;
         closeBtn.set(w - 10 * d - 44 * d, 4 * d, w - 10 * d, 4 * d + 32 * d);
         enterBtn.set(closeBtn.left - 8 * d - 90 * d, 4 * d, closeBtn.left - 8 * d, 4 * d + 32 * d);
-        echoBox.set(230 * d, 4 * d, enterBtn.left - 10 * d, 4 * d + 32 * d);
+        echoBox.set(260 * d, 4 * d, enterBtn.left - 10 * d, 4 * d + 32 * d);
 
         float pad = 8 * d;
         int cols = 5;
@@ -558,9 +547,9 @@ public class TouchControls extends View {
                         knobDx = dx;
                         knobDy = dy;
                     }
-                    if (dx < -0.22f * stickR) {
+                    if (dx < -STICK_DEADZONE * stickR) {
                         wanted.add(KeyEvent.KEYCODE_DPAD_LEFT);
-                    } else if (dx > 0.22f * stickR) {
+                    } else if (dx > STICK_DEADZONE * stickR) {
                         wanted.add(KeyEvent.KEYCODE_DPAD_RIGHT);
                     }
                 } else {
@@ -619,7 +608,7 @@ public class TouchControls extends View {
             canvas.drawRect(panel, fill);
             canvas.drawLine(0, panel.bottom, panel.right, panel.bottom, stroke);
 
-            canvas.drawText("Teclea el truco y pulsa ENTER", 12 * density, 4 * density + 21 * density, titlePaint);
+            canvas.drawText("Teclea el truco (sin ENTER)", 12 * density, 4 * density + 21 * density, titlePaint);
 
             fill.setColor(0x33FFFFFF);
             canvas.drawRoundRect(echoBox, radius, radius, fill);
