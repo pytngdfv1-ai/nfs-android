@@ -31,13 +31,15 @@ public class TouchControls extends View {
         final int key;
         final int kind;
         final boolean bigLabel;
+        final float slop; // margen extra de toque alrededor del dibujo
         final RectF r;
 
-        Btn(String label, int key, int kind, boolean bigLabel, RectF r) {
+        Btn(String label, int key, int kind, boolean bigLabel, float slop, RectF r) {
             this.label = label;
             this.key = key;
             this.kind = kind;
             this.bigLabel = bigLabel;
+            this.slop = slop;
             this.r = r;
         }
     }
@@ -78,6 +80,7 @@ public class TouchControls extends View {
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint smallLabel = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint arrowText = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint titlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint codePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -99,6 +102,11 @@ public class TouchControls extends View {
         text.setTextAlign(Paint.Align.CENTER);
         text.setTextSize(14f * density);
         text.setFakeBoldText(true);
+
+        smallLabel.setColor(0xFFFFFFFF);
+        smallLabel.setTextAlign(Paint.Align.CENTER);
+        smallLabel.setTextSize(12f * density);
+        smallLabel.setFakeBoldText(true);
 
         arrowText.setColor(0xFFFFFFFF);
         arrowText.setTextAlign(Paint.Align.CENTER);
@@ -142,8 +150,9 @@ public class TouchControls extends View {
 
     // ------------------------------------------------------------------ layout
 
-    private void addKey(String label, int key, boolean bigLabel, float l, float t, float r, float b) {
-        buttons.add(new Btn(label, key, KIND_KEY, bigLabel, new RectF(l, t, r, b)));
+    private void addKey(String label, int key, boolean bigLabel, float slop,
+                        float l, float t, float r, float b) {
+        buttons.add(new Btn(label, key, KIND_KEY, bigLabel, slop, new RectF(l, t, r, b)));
     }
 
     @Override
@@ -161,22 +170,27 @@ public class TouchControls extends View {
         float leftC = zw / 2f;
         float rightC = w - zw / 2f;
 
-        // Arriba al centro: TRUCOS y SALTAR (la intro)
-        buttons.add(new Btn("TRUCOS", 0, KIND_CHEATS, false,
-                new RectF(w / 2f - 40 * d, 6 * d, w / 2f + 40 * d, 38 * d)));
-        buttons.add(new Btn("SALTAR", 0, KIND_SKIP, false,
-                new RectF(w / 2f + 48 * d, 6 * d, w / 2f + 128 * d, 38 * d)));
+        // Franja izquierda, arriba: TRUCOS (chico) y debajo el boton C (camara)
+        buttons.add(new Btn("TRUCOS", 0, KIND_CHEATS, false, 4 * d,
+                new RectF(leftC - 30 * d, 6 * d, leftC + 30 * d, 36 * d)));
+        addKey("C", KeyEvent.KEYCODE_C, false, 6 * d,
+                leftC - 18 * d, 44 * d, leftC + 18 * d, 44 * d + 36 * d);
 
-        // Franja izquierda: giro izquierda / derecha
+        // Centro arriba: SALTAR la intro (solo al principio)
+        buttons.add(new Btn("SALTAR", 0, KIND_SKIP, false, 0,
+                new RectF(w / 2f - 40 * d, 6 * d, w / 2f + 40 * d, 38 * d)));
+
+        // Franja izquierda, abajo: giro izquierda / derecha
         float dir = 64 * d * s;
         float dgap = 8 * d * s;
         float dleft = leftC - (dir * 2 + dgap) / 2f;
-        addKey("\u25C0", KeyEvent.KEYCODE_DPAD_LEFT, true,
+        float arrowSlop = 10 * d;
+        addKey("\u25C0", KeyEvent.KEYCODE_DPAD_LEFT, true, arrowSlop,
                 dleft, h - m - dir, dleft + dir, h - m);
-        addKey("\u25B6", KeyEvent.KEYCODE_DPAD_RIGHT, true,
+        addKey("\u25B6", KeyEvent.KEYCODE_DPAD_RIGHT, true, arrowSlop,
                 dleft + dir + dgap, h - m - dir, dleft + 2 * dir + dgap, h - m);
 
-        // Franja derecha: freno / reversa y acelerador
+        // Franja derecha: freno / reversa y acelerador (zona de toque amplia)
         float gasW = 84 * d * s;
         float gasH = 132 * d * s;
         float brkW = 72 * d * s;
@@ -184,9 +198,10 @@ public class TouchControls extends View {
         float pgap = 10 * d * s;
         float totalW = brkW + pgap + gasW;
         float left0 = rightC - totalW / 2f;
-        addKey("FRENO", KeyEvent.KEYCODE_DPAD_DOWN, false,
+        float pedalSlop = 18 * d;
+        addKey("FRENO", KeyEvent.KEYCODE_DPAD_DOWN, false, pedalSlop,
                 left0, h - m - brkH, left0 + brkW, h - m);
-        addKey("GAS", KeyEvent.KEYCODE_DPAD_UP, false,
+        addKey("GAS", KeyEvent.KEYCODE_DPAD_UP, false, pedalSlop,
                 left0 + brkW + pgap, h - m - gasH, left0 + totalW, h - m);
 
         layoutPanel(w, h);
@@ -226,11 +241,27 @@ public class TouchControls extends View {
         return true;
     }
 
+    // Busca el boton tocado: zona ampliada por "slop"; si hay varios, gana el mas cercano
     private Btn hit(float x, float y) {
+        Btn best = null;
+        float bestDist = Float.MAX_VALUE;
         for (Btn b : buttons) {
-            if (isVisible(b) && b.r.contains(x, y)) return b;
+            if (!isVisible(b)) continue;
+            float l = b.r.left - b.slop;
+            float t = b.r.top - b.slop;
+            float r = b.r.right + b.slop;
+            float bt = b.r.bottom + b.slop;
+            if (x >= l && x <= r && y >= t && y <= bt) {
+                float dx = x - b.r.centerX();
+                float dy = y - b.r.centerY();
+                float dist = dx * dx + dy * dy;
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = b;
+                }
+            }
         }
-        return null;
+        return best;
     }
 
     private void tapKey(final int keyCode) {
@@ -472,6 +503,7 @@ public class TouchControls extends View {
             canvas.drawRoundRect(b.r, radius, radius, fill);
             canvas.drawRoundRect(b.r, radius, radius, stroke);
             Paint tp = b.bigLabel ? arrowText : text;
+            if (b.kind == KIND_CHEATS) tp = smallLabel;
             float ty = b.r.centerY() - (tp.descent() + tp.ascent()) / 2f;
             canvas.drawText(b.label, b.r.centerX(), ty, tp);
         }
