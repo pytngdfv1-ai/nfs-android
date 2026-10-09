@@ -26,19 +26,23 @@ public class TouchControls extends View {
     private static final int KIND_SKIP = 1;
     private static final int KIND_CHEATS = 2;
 
+    private static final int FONT_NORMAL = 0;
+    private static final int FONT_BIG = 1;
+    private static final int FONT_SMALL = 2;
+
     private static class Btn {
         final String label;
         final int key;
         final int kind;
-        final boolean bigLabel;
+        final int font;
         final float slop; // margen extra de toque alrededor del dibujo
         final RectF r;
 
-        Btn(String label, int key, int kind, boolean bigLabel, float slop, RectF r) {
+        Btn(String label, int key, int kind, int font, float slop, RectF r) {
             this.label = label;
             this.key = key;
             this.kind = kind;
-            this.bigLabel = bigLabel;
+            this.font = font;
             this.slop = slop;
             this.r = r;
         }
@@ -105,7 +109,7 @@ public class TouchControls extends View {
 
         smallLabel.setColor(0xFFFFFFFF);
         smallLabel.setTextAlign(Paint.Align.CENTER);
-        smallLabel.setTextSize(12f * density);
+        smallLabel.setTextSize(11f * density);
         smallLabel.setFakeBoldText(true);
 
         arrowText.setColor(0xFFFFFFFF);
@@ -150,9 +154,9 @@ public class TouchControls extends View {
 
     // ------------------------------------------------------------------ layout
 
-    private void addKey(String label, int key, boolean bigLabel, float slop,
+    private void addKey(String label, int key, int font, float slop,
                         float l, float t, float r, float b) {
-        buttons.add(new Btn(label, key, KIND_KEY, bigLabel, slop, new RectF(l, t, r, b)));
+        buttons.add(new Btn(label, key, KIND_KEY, font, slop, new RectF(l, t, r, b)));
     }
 
     @Override
@@ -170,24 +174,25 @@ public class TouchControls extends View {
         float leftC = zw / 2f;
         float rightC = w - zw / 2f;
 
-        // Franja izquierda, arriba: TRUCOS (chico) y debajo el boton C (camara)
-        buttons.add(new Btn("TRUCOS", 0, KIND_CHEATS, false, 4 * d,
+        // Franja izquierda, arriba (de arriba hacia abajo): TRUCOS, C, ESC, SALTAR
+        buttons.add(new Btn("TRUCOS", 0, KIND_CHEATS, FONT_SMALL, 4 * d,
                 new RectF(leftC - 30 * d, 6 * d, leftC + 30 * d, 36 * d)));
-        addKey("C", KeyEvent.KEYCODE_C, false, 6 * d,
-                leftC - 18 * d, 44 * d, leftC + 18 * d, 44 * d + 36 * d);
-
-        // Centro arriba: SALTAR la intro (solo al principio)
-        buttons.add(new Btn("SALTAR", 0, KIND_SKIP, false, 0,
-                new RectF(w / 2f - 40 * d, 6 * d, w / 2f + 40 * d, 38 * d)));
+        addKey("C", KeyEvent.KEYCODE_C, FONT_NORMAL, 4 * d,
+                leftC - 18 * d, 44 * d, leftC + 18 * d, 44 * d + 34 * d);
+        addKey("ESC", KeyEvent.KEYCODE_ESCAPE, FONT_SMALL, 4 * d,
+                leftC - 22 * d, 86 * d, leftC + 22 * d, 86 * d + 28 * d);
+        // SALTAR la intro (solo al principio), chico
+        buttons.add(new Btn("SALTAR", 0, KIND_SKIP, FONT_SMALL, 4 * d,
+                new RectF(leftC - 28 * d, 122 * d, leftC + 28 * d, 122 * d + 26 * d)));
 
         // Franja izquierda, abajo: giro izquierda / derecha
         float dir = 64 * d * s;
         float dgap = 8 * d * s;
         float dleft = leftC - (dir * 2 + dgap) / 2f;
         float arrowSlop = 10 * d;
-        addKey("\u25C0", KeyEvent.KEYCODE_DPAD_LEFT, true, arrowSlop,
+        addKey("\u25C0", KeyEvent.KEYCODE_DPAD_LEFT, FONT_BIG, arrowSlop,
                 dleft, h - m - dir, dleft + dir, h - m);
-        addKey("\u25B6", KeyEvent.KEYCODE_DPAD_RIGHT, true, arrowSlop,
+        addKey("\u25B6", KeyEvent.KEYCODE_DPAD_RIGHT, FONT_BIG, arrowSlop,
                 dleft + dir + dgap, h - m - dir, dleft + 2 * dir + dgap, h - m);
 
         // Franja derecha: freno / reversa y acelerador (zona de toque amplia)
@@ -199,9 +204,9 @@ public class TouchControls extends View {
         float totalW = brkW + pgap + gasW;
         float left0 = rightC - totalW / 2f;
         float pedalSlop = 18 * d;
-        addKey("FRENO", KeyEvent.KEYCODE_DPAD_DOWN, false, pedalSlop,
+        addKey("FRENO", KeyEvent.KEYCODE_DPAD_DOWN, FONT_NORMAL, pedalSlop,
                 left0, h - m - brkH, left0 + brkW, h - m);
-        addKey("GAS", KeyEvent.KEYCODE_DPAD_UP, false, pedalSlop,
+        addKey("GAS", KeyEvent.KEYCODE_DPAD_UP, FONT_NORMAL, pedalSlop,
                 left0 + brkW + pgap, h - m - gasH, left0 + totalW, h - m);
 
         layoutPanel(w, h);
@@ -500,10 +505,12 @@ public class TouchControls extends View {
             int alpha = pressed ? 0xA0 : 0x50;
             if (b.kind != KIND_KEY) alpha = 0x80;
             fill.setColor((alpha << 24) | 0x00FFFFFF);
-            canvas.drawRoundRect(b.r, radius, radius, fill);
-            canvas.drawRoundRect(b.r, radius, radius, stroke);
-            Paint tp = b.bigLabel ? arrowText : text;
-            if (b.kind == KIND_CHEATS) tp = smallLabel;
+            float rad = b.font == FONT_SMALL ? 7 * density : radius;
+            canvas.drawRoundRect(b.r, rad, rad, fill);
+            canvas.drawRoundRect(b.r, rad, rad, stroke);
+            Paint tp = text;
+            if (b.font == FONT_BIG) tp = arrowText;
+            else if (b.font == FONT_SMALL) tp = smallLabel;
             float ty = b.r.centerY() - (tp.descent() + tp.ascent()) / 2f;
             canvas.drawText(b.label, b.r.centerX(), ty, tp);
         }
